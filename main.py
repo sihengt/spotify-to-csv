@@ -1,23 +1,26 @@
+from flask import Flask, redirect, request
 import requests
-from flask import Flask
 import yaml
+import random
+import string
+import urllib
 
-with open("secret.yaml") as f:
-    config = yaml.safe_load(f)
-    CLIENT_ID = config['client_id']
-    CLIENT_SECRET = config['client_secret']
+REDIRECT_URI = "http://127.0.0.1:8000/callback"
 
-
+# BAD PRACTICES BUT I'M IN A RUSH
+b_login = False
 
 """
-Returns access token if all is ok
+Returns access token if all is ok. Uses code.
 """
-def login(client_id, client_secret):
+def login_to_spotify(code, client_id, client_secret):
     res = requests.post('https://accounts.spotify.com/api/token',
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    data={"grant_type": "client_credentials",
-                            "client_id": client_id,
-                            "client_secret": client_secret})
+                    data={"grant_type": "authorization_code",
+                          "redirect_uri": REDIRECT_URI,
+                          "client_id": client_id,
+                          "client_secret": client_secret,
+                          "code": code})
     if res.ok:
         data = res.json()
         return data["access_token"]
@@ -29,17 +32,65 @@ def get_all_playlists(access_token):
                        headers={"Authorization": f"Bearer {access_token}"})
     if res.ok:
         print(res.json())
+        return res.json()
     else:
         print(f"Status code: {res.status_code}")
         print("die")
 
+def generate_random_string(length):
+    return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+
 def main():
-    # 1. Get access token
-    access_token = login(CLIENT_ID, CLIENT_SECRET)
+    # We need "secret.yaml"!
+    with open("secret.yaml") as f:
+        config = yaml.safe_load(f)
+        CLIENT_ID = config['client_id']
+        CLIENT_SECRET = config['client_secret']
+
+
+    # 0. Authorization (https://developer.spotify.com/documentation/web-api/tutorials/code-flow)
+    app = Flask(__name__)
     
-    # 2. Get all playlists
-    get_all_playlists(access_token)
+    @app.route("/login")
+    def login():
+        state = generate_random_string(16)
+        scope = 'playlist-read-private'
+
+        query = {'response_type': 'code',
+                 'client_id': CLIENT_ID,
+                 'scope': scope,
+                 'redirect_uri': REDIRECT_URI,
+                 'state': state}
+        
+        auth_url = ("https://accounts.spotify.com/authorize?" + urllib.parse.urlencode(query))
+        return redirect(auth_url)
     
+    @app.route("/callback")
+    def callback():
+        print("hello!")
+        code = request.args.get('code')
+        state = request.args.get('state')
+        
+        # 1. Get access token
+        access_token = login_to_spotify(code, CLIENT_ID, CLIENT_SECRET)
+        
+        # 2. Get all playlists
+        playlists_json = get_all_playlists(access_token)
+
+        # 3. Process playlists
+        for playlist in playlists_json['items']:
+            pl_name = playlist['name']
+            pl_owner = playlist['owner']
+            pl_public = playlist['public']
+            pl_tracks = playlist['tracks'] # this is a href link to the Web API endpoint where full details of the playlist's tracks can be retrieved.
+
+        return f"Received code: {code}<br>State: {state}."
+
+
+
+    app.run(port=8000, debug=True)
+
+
 
 if __name__ == "__main__":
     main()
