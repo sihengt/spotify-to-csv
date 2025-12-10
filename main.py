@@ -4,11 +4,9 @@ import yaml
 import random
 import string
 import urllib
+import pandas as pd
 
 REDIRECT_URI = "http://127.0.0.1:8000/callback"
-
-# BAD PRACTICES BUT I'M IN A RUSH
-b_login = False
 
 """
 Returns access token if all is ok. Uses code.
@@ -78,13 +76,36 @@ def main():
         playlists_json = get_all_playlists(access_token)
 
         # 3. Process playlists
+        tracks_dict = {'playlist':[], 'track':[], 'artist':[]}
+        
         for playlist in playlists_json['items']:
             pl_name = playlist['name']
             pl_owner = playlist['owner']
             pl_public = playlist['public']
-            pl_tracks = playlist['tracks'] # this is a href link to the Web API endpoint where full details of the playlist's tracks can be retrieved.
+            # TODO: HARDCODED?!
+            if pl_owner['id'] != 'tropicvelvet':
+                continue
+            
+            pl_tracks = playlist['tracks']['href'] # this is a href link to the Web API endpoint where full details of the playlist's tracks can be retrieved.
+            print(pl_tracks)
+            res = requests.get(pl_tracks,
+                    headers={"Authorization": f"Bearer {access_token}"})
+            
+            # iterate through res.json()['items']
+            for song in res.json()['items']:
+                # assume first artist is the main artist first.
+                main_artist_name = song['track']['artists'][0]['name']
+                track_name = song['track']['name']
+                track_spotify_id = song['track']['id']
+                tracks_dict['playlist'].append(pl_name)
+                tracks_dict['track'].append(track_name)
+                tracks_dict['artist'].append(main_artist_name)
 
-        return f"Received code: {code}<br>State: {state}."
+        df = pd.DataFrame.from_dict(tracks_dict)
+        df.to_csv("songs.csv", index=False)
+        breakpoint()
+        
+        return f"Received code: {code}<br> State: {state}."
 
 
 
